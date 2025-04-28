@@ -94,9 +94,7 @@ variable "metrics_filter" {
 }
 
 variable "blacklisted_ports" {
-  type = list(object({
-    port = string
-  }))
+  type        = list(number)
   description = "To blacklist ports, include the ports you wish to block network traffic and metrics from network ports. See https://cloud.ibm.com/docs/monitoring?topic=monitoring-change_kube_agent#change_kube_agent_block_ports."
   default     = []
 }
