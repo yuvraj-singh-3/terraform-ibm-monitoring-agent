@@ -179,3 +179,21 @@ variable "image_tag_digest" {
   default     = "13.9.0@sha256:7f1beb74255789746eb78d2cc628aad2ebb1b61abea601b4c8b09f23e18d992f" # datasource: icr.io/ext/sysdig/agent
   nullable    = false
 }
+
+variable "min_memory" {
+  description = "Minimum memory required for the Cloud Monitoring agent."
+  type        = string
+  default     = "256Mi"
+}
+
+variable "max_memory" {
+  description = "Maximum memory required for the Cloud Monitoring agent."
+  type        = string
+  default     = "1Gi"
+}
+
+variable "cpu" {
+  description = "CPU required for the Cloud Monitoring agent."
+  type        = string
+  default     = "500m"
+}

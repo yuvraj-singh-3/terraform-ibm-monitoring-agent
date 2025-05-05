@@ -31,4 +31,7 @@ module "monitoring_agent" {
   chart_version                           = var.chart_version
   image_registry                          = var.image_registry
   image_tag_digest                        = var.image_tag_digest
+  min_memory                              = var.min_memory
+  max_memory                              = var.max_memory
+  cpu                                     = var.cpu
 }

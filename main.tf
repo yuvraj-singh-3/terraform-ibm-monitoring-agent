@@ -77,6 +77,26 @@ resource "helm_release" "cloud_monitoring_agent" {
     type  = "auto"
     value = false
   }
+  set {
+    name  = "resources.requests.memory"
+    type  = "string"
+    value = var.min_memory
+  }
+  set {
+    name  = "resources.limits.memory"
+    type  = "string"
+    value = var.max_memory
+  }
+  set {
+    name  = "resources.requests.cpu"
+    type  = "string"
+    value = var.cpu
+  }
+  set {
+    name  = "resources.limits.cpu"
+    type  = "string"
+    value = var.cpu
+  }
 
   values = [
     yamlencode(

@@ -141,6 +141,15 @@
               "key": "image_tag_digest"
             },
             {
+              "key": "min_memory"
+            },
+            {
+              "key": "max_memory"
+            },
+            {
+              "key": "cpu"
+            },
+            {
               "key": "chart"
             },
             {
