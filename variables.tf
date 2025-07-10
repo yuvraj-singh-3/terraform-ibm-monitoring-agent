@@ -256,3 +256,9 @@ variable "agent_limits_memory" {
   description = "Specifies the memory limit for the agent."
   default     = "1024Mi"
 }
+
+variable "enable_universal_ebpf" {
+  type        = bool
+  description = "Deploy monitoring agent with universal eBPF enabled. It requires kernel version 5.8+. [Learn more](https://github.com/terraform-ibm-modules/terraform-ibm-monitoring-agent/tree/main/solutions/fully-configurable/DA-docs.md)."
+  default     = true
+}
