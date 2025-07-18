@@ -54,7 +54,7 @@ locals {
       subnet_prefix    = "default"
       pool_name        = "default" # ibm_container_vpc_cluster automatically names default pool "default" (See https://github.com/IBM-Cloud/terraform-provider-ibm/issues/2849)
       machine_type     = "bx2.4x16"
-      operating_system = "RHEL_9_64"
+      operating_system = "REDHAT_8_64"
       workers_per_zone = 2 # minimum of 2 is allowed when using single zone
     }
   ]
