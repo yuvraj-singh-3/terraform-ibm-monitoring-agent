@@ -28,15 +28,25 @@ data "ibm_container_cluster_config" "cluster_config" {
 }
 
 locals {
-  # LOCALS
-  cluster_name   = var.is_vpc_cluster ? data.ibm_container_vpc_cluster.cluster[0].resource_name : data.ibm_container_cluster.cluster[0].resource_name # Not publically documented in provider. See https://github.com/IBM-Cloud/terraform-provider-ibm/issues/4485
-  collector_host = var.cloud_monitoring_instance_endpoint_type == "private" ? "ingest.private.${var.cloud_monitoring_instance_region}.monitoring.cloud.ibm.com" : "ingest.${var.cloud_monitoring_instance_region}.monitoring.cloud.ibm.com"
+  cluster_name         = var.is_vpc_cluster ? data.ibm_container_vpc_cluster.cluster[0].resource_name : data.ibm_container_cluster.cluster[0].resource_name # Not publicly documented in provider. See https://github.com/IBM-Cloud/terraform-provider-ibm/issues/4485
+  use_container_filter = length(var.container_filter) < 0 || var.container_filter == null ? false : true
+  # construct ingestion and api endpoints based on inputs
+  monitoring_api_endpoint = "${var.instance_region}.monitoring.cloud.ibm.com"
+  scc_wp_api_endpoint     = "${var.instance_region}.security-compliance-secure.cloud.ibm.com"
+  base_endpoint           = var.use_scc_wp_endpoint ? local.scc_wp_api_endpoint : local.monitoring_api_endpoint
+  ingestion_endpoint      = var.use_private_endpoint ? "ingest.private.${local.base_endpoint}" : "ingest.${local.base_endpoint}"
+  api_host                = replace(local.ingestion_endpoint, "ingest.", "")
   dynamic_set_access_key_secret = var.existing_access_key_secret_name != null && var.existing_access_key_secret_name != "" ? [{
     name  = "global.sysdig.accessKeySecret"
     type  = "string"
     value = var.existing_access_key_secret_name
   }] : []
-
+  dynamic_agent_tags = [for k, v in var.agent_tags :
+    {
+      name  = "global.sysdig.tags.${k}"
+      value = v
+    }
+  ]
 }
 
 resource "helm_release" "cloud_monitoring_agent" {
@@ -53,24 +63,21 @@ resource "helm_release" "cloud_monitoring_agent" {
   reset_values     = true
 
   set = concat([
+    # Values
     {
-      name  = "agent.collectorSettings.collectorHost"
+      name  = "Values.image.repository"
       type  = "string"
-      value = local.collector_host
+      value = var.image_registry_base_url
+    },
+    # Global
+    {
+      name  = "global.imageRegistry"
+      type  = "string"
+      value = "${var.image_registry_base_url}/${var.image_registry_namespace}"
     },
     {
-      name  = "agent.slim.image.repository"
-      type  = "string"
-      value = var.agent_image_repository
-    },
-    {
-      name  = "agent.slim.kmoduleImage.repository"
-      type  = "string"
-      value = var.kernal_module_image_repository
-    },
-    {
-      name  = "agent.slim.enabled"
-      value = true
+      name  = "global.sysdig.apiHost"
+      value = local.api_host
     },
     {
       name  = "global.clusterConfig.name"
@@ -78,65 +85,85 @@ resource "helm_release" "cloud_monitoring_agent" {
       value = local.cluster_name
     },
     {
-      name  = "agent.image.registry"
+      name  = "global.sysdig.tags.deployment"
       type  = "string"
-      value = var.image_registry_base_url
+      value = var.deployment_tag
     },
     {
-      name  = "Values.image.repository"
+      name  = "global.sysdig.tags.ibm-containers-kubernetes-cluster-name"
       type  = "string"
-      value = var.image_registry_base_url
+      value = var.add_cluster_name ? local.cluster_name : null
+    },
+    # Cluster shield
+    {
+      name  = "clusterShield.enabled"
+      value = var.cluster_shield_deploy
     },
     {
-      name  = "global.imageRegistry"
+      name  = "clusterShield.image.repository"
+      value = var.cluster_shield_image_repository
+    },
+    {
+      name  = "clusterShield.image.tag"
+      value = var.cluster_shield_image_tag_digest
+    },
+    {
+      name  = "clusterShield.resources.requests.cpu"
       type  = "string"
-      value = "${var.image_registry_base_url}/${var.image_registry_namespace}"
+      value = var.cluster_shield_requests_cpu
     },
     {
-      name  = "agent.image.tag"
+      name  = "clusterShield.resources.requests.memory"
       type  = "string"
-      value = var.agent_image_tag_digest
+      value = var.cluster_shield_requests_memory
     },
     {
-      name  = "agent.resources.requests.cpu"
+      name  = "clusterShield.resources.limits.cpu"
       type  = "string"
-      value = var.agent_requests_cpu
+      value = var.cluster_shield_limits_cpu
     },
     {
-      name  = "agent.resources.requests.memory"
+      name  = "clusterShield.resources.limits.memory"
       type  = "string"
-      value = var.agent_requests_memory
+      value = var.cluster_shield_limits_memory
     },
     {
-      name  = "agent.resources.limits.cpu"
+      name  = "clusterShield.cluster_shield.sysdig_endpoint.region"
       type  = "string"
-      value = var.agent_limits_cpu
+      value = "custom"
     },
     {
-      name  = "agent.resources.limits.memory"
+      name  = "clusterShield.cluster_shield.log_level"
       type  = "string"
-      value = var.agent_limits_memory
+      value = "info"
     },
     {
-      name  = "agent.slim.kmoduleImage.digest"
-      type  = "string"
-      value = regex("@(.*)", var.kernel_module_image_tag_digest)[0]
+      name  = "clusterShield.cluster_shield.features.admission_control.enabled"
+      value = var.cluster_shield_deploy
     },
     {
-      name  = "agent.ebpf.enabled"
-      value = var.enable_universal_ebpf
+      name  = "clusterShield.cluster_shield.features.container_vulnerability_management.enabled"
+      value = var.cluster_shield_deploy
     },
     {
-      name  = "agent.ebpf.kind"
-      value = "universal_ebpf"
+      name  = "clusterShield.cluster_shield.features.audit.enabled"
+      value = var.cluster_shield_deploy
     },
-    # Specific to SCC WP, enabled by default
+    {
+      name  = "clusterShield.cluster_shield.features.posture.enabled"
+      value = var.cluster_shield_deploy
+    },
+    # nodeAnalyzer has been replaced by the host_scanner and kspm_analyzer functionality of main agent daemonset
     {
       name  = "nodeAnalyzer.enabled"
-      type  = "auto"
+      value = false
+    },
+    # clusterScanner has been replaced by cluster_shield component
+    {
+      name  = "clusterScanner.enabled"
       value = false
     }
-  ], local.dynamic_set_access_key_secret)
+  ], local.dynamic_agent_tags, local.dynamic_set_access_key_secret)
 
   set_sensitive = var.access_key != null && var.access_key != "" ? [{
     name  = "global.sysdig.accessKey"
@@ -144,26 +171,92 @@ resource "helm_release" "cloud_monitoring_agent" {
     value = var.access_key
   }] : []
 
-  # Values to be passed to the agent config map, e.g `kubectl describe configmap sysdig-agent -n ibm-observe`
-  values = [
-    yamlencode({
-      agent = {
-        sysdig = {
-          settings = {
-            blacklisted_ports = var.blacklisted_ports
-            metrics_filter    = var.metrics_filter
-            container_filter  = var.container_filter
-          }
-          tags = merge(
-            var.agent_tags,
-            var.add_cluster_name ? {
-              "ibm-containers-kubernetes-cluster-name" = local.cluster_name
-            } : {}
-          )
-        },
-        tolerations = var.tolerations
-      }
-    })
+  # Had to use raw yaml here instead of converting HCL to yaml due to this issue with boolean getting converted to string which sysdig helm chart rejects:
+  # https://github.com/hashicorp/terraform-provider-helm/issues/1677
+  values = [<<EOT
+"agent":
+  "collectorSettings":
+    "collectorHost": ${local.ingestion_endpoint}
+  "slim":
+    "image":
+      "repository": ${var.agent_image_repository}
+    "kmoduleImage":
+      "repository": ${var.kernal_module_image_repository}
+      "tag": ${var.kernel_module_image_tag_digest}
+  "image":
+    "registry": ${var.image_registry_base_url}
+    "tag": ${var.agent_image_tag_digest}
+  "resources":
+    "requests":
+      "cpu": ${var.agent_requests_cpu}
+      "memory": ${var.agent_requests_memory}
+    "limits":
+      "cpu": ${var.agent_limits_cpu}
+      "memory": ${var.agent_limits_memory}
+  "ebpf":
+    "enabled": ${var.enable_universal_ebpf}
+    "kind": "universal_ebpf"
+  "sysdig":
+    "tolerations":
+%{for toleration in var.tolerations~}
+%{if toleration.key != null~}
+        - "key": ${toleration.key}
+%{endif~}
+%{if toleration.operator != null~}
+        - "operator": ${toleration.operator}
+%{endif~}
+%{if toleration.value != null~}
+        - "value": ${toleration.value}
+%{endif~}
+%{if toleration.effect != null~}
+        - "effect": ${toleration.effect}
+%{endif~}
+%{if toleration.tolerationSeconds != null~}
+        - "tolerationSeconds": ${toleration.tolerationSeconds}
+%{endif~}
+%{endfor~}
+    "settings":
+      "host_scanner":
+        "enabled": ${var.enable_host_scanner}
+      "kspm_analyzer":
+        "enabled": ${var.enable_kspm_analyzer}
+      "sysdig_api_endpoint": ${local.api_host}
+      "blacklisted_ports":
+%{for port in var.blacklisted_ports~}
+        - ${port}
+%{endfor~}
+      "metrics_filter":
+%{for filter in var.metrics_filter~}
+%{if filter.include != null~}
+        - "include": ${filter.include}
+%{endif~}
+%{if filter.exclude != null~}
+        - "exclude": ${filter.exclude}
+%{endif~}
+%{endfor~}
+      "use_container_filter": ${local.use_container_filter}
+      "container_filter":
+%{for filter in var.container_filter~}
+        - ${filter.type}:
+            ${filter.parameter}: ${filter.name}
+%{endfor~}
+%{if var.enable_host_scanner || var.enable_kspm_analyzer~}
+  "extraVolumes":
+    "mounts":
+    - "mountPath": "/host"
+      "name": "root-vol"
+      "readOnly": true
+    - "mountPath": "/host/tmp"
+      "name": "tmp-vol"
+    "volumes":
+    - "hostPath":
+        "path": "/"
+      "name": "root-vol"
+    - "hostPath":
+        "path": "/tmp"
+      "name": "tmp-vol"
+%{endif~}
+EOT
   ]
 
   provisioner "local-exec" {
