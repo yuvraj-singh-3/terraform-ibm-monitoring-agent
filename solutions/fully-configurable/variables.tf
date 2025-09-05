@@ -245,6 +245,32 @@ variable "deployment_tag" {
   default     = "terraform"
 }
 
+variable "max_unavailable" {
+  type        = string
+  description = "The maximum number of pods that can be unavailable during a DaemonSet rolling update. Accepts absolute number or percentage (e.g., '1' or '10%')."
+  default     = "1"
+  nullable    = false
+}
+
+variable "max_surge" {
+  type        = string
+  description = "The number of pods that can be created above the desired amount of daemonset pods during an update. If `max_surge` is set to null, the `max_surge` setting is ignored. The variable accepts absolute number or percentage value(e.g., '1' or '10%')."
+  default     = null
+}
+
+variable "priority_class_name" {
+  type        = string
+  description = "The priority class name for the PriorityClasses assigned to the monitoring agent daemonset. If no value is passed, priority class is not used."
+  default     = null
+}
+
+variable "priority_class_value" {
+  type        = number
+  nullable    = false
+  description = "The numerical priority assigned to PriorityClass, which determines the importance of monitoring agent daemonset pod within the cluster for both scheduling and eviction decisions. The value only applies if a value was passed for `priority_class_name`"
+  default     = 10
+}
+
 ##############################################################################
 # Metrics related variables
 ##############################################################################
