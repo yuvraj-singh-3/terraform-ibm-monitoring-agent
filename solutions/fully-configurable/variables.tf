@@ -8,6 +8,33 @@ variable "ibmcloud_api_key" {
   sensitive   = true
 }
 
+variable "prefix" {
+  type        = string
+  nullable    = true
+  description = "The prefix to add to all resources that this solution creates (e.g `prod`, `test`, `dev`). To skip using a prefix, set this value to null or an empty string. [Learn more](https://terraform-ibm-modules.github.io/documentation/#/prefix.md)."
+
+  validation {
+    # - null and empty string is allowed
+    # - Must not contain consecutive hyphens (--): length(regexall("--", var.prefix)) == 0
+    # - Starts with a lowercase letter: [a-z]
+    # - Contains only lowercase letters (a–z), digits (0–9), and hyphens (-)
+    # - Must not end with a hyphen (-): [a-z0-9]
+    condition = (var.prefix == null || var.prefix == "" ? true :
+      alltrue([
+        can(regex("^[a-z][-a-z0-9]*[a-z0-9]$", var.prefix)),
+        length(regexall("--", var.prefix)) == 0
+      ])
+    )
+    error_message = "Prefix must begin with a lowercase letter and may contain only lowercase letters, digits, and hyphens '-'. It must not end with a hyphen('-'), and cannot contain consecutive hyphens ('--')."
+  }
+
+  validation {
+    # must not exceed 16 characters in length
+    condition     = var.prefix == null || var.prefix == "" ? true : length(var.prefix) <= 16
+    error_message = "Prefix must not exceed 16 characters."
+  }
+}
+
 variable "cluster_id" {
   type        = string
   description = "The ID of the cluster you wish to deploy the agent in."
@@ -66,10 +93,15 @@ variable "wait_till_timeout" {
 # Common agent variables
 ##############################################################################
 
-variable "instance_region" {
+variable "instance_crn" {
   type        = string
-  description = "The region of the IBM Cloud Monitoring instance that you want to send metrics to. This is used to construct the ingestion and api endpoints. If you are only using the agent for security and compliance monitoring, set this to the region of your IBM Cloud Security and Compliance Center Workload Protection instance. [Learn more](https://github.com/terraform-ibm-modules/terraform-ibm-monitoring-agent/blob/main/solutions/fully-configurable/DA-docs.md#key-considerations)."
+  description = "The CRN of the IBM Cloud Monitoring instance that you want to send metrics to. This is used to construct the ingestion and api endpoints. If you are only using the agent for security and compliance monitoring, set this to the crn of your IBM Cloud Security and Compliance Center Workload Protection instance. If you are using this agent for both `monitoring` and `security and compliance` you can provide CRN of any one of them provided they are connected. [Learn more](https://github.com/terraform-ibm-modules/terraform-ibm-monitoring-agent/blob/main/solutions/fully-configurable/DA-docs.md#key-considerations)."
   nullable    = false
+
+  validation {
+    condition     = var.instance_crn != ""
+    error_message = "Instance CRN can not be empty."
+  }
 }
 
 variable "use_private_endpoint" {
@@ -81,21 +113,14 @@ variable "use_private_endpoint" {
 
 variable "access_key" {
   type        = string
-  description = "Access key used by the agent to communicate with the instance. Either `access_key` or `existing_access_key_secret_name` is required. This value will be stored in a new secret on the cluster if passed. If you want to use this agent for only metrics or metrics with security and compliance, use a manager key scoped to the IBM Cloud Monitoring instance. If you only want to use the agent for security and compliance use a manager key scoped to the Security and Compliance Center Workload Protection instance."
+  description = "Access key used by the agent to communicate with the instance. This value will be stored in a new secret on the cluster if passed. If you want to use this agent for only metrics or metrics with security and compliance, use a manager key scoped to the IBM Cloud Monitoring instance. If you only want to use the agent for security and compliance use a manager key scoped to the Security and Compliance Center Workload Protection instance. If neither `access_key` nor `existing_access_key_secret_name` is provided a new Manager Key will be created scoped to the instance provided in `instance_crn`."
   sensitive   = true
   default     = null
-  validation {
-    condition = (
-      (var.access_key != null && var.access_key != "") ||
-      (var.existing_access_key_secret_name != null && var.existing_access_key_secret_name != "")
-    )
-    error_message = "Either 'access_key' or 'existing_access_key_secret_name' must be provided and non-empty."
-  }
 }
 
 variable "existing_access_key_secret_name" {
   type        = string
-  description = "An alternative to using `access_key`. Specify the name of an existing Kubernetes secret containing the access key in the same namespace that is defined in the `namespace` input. Either `access_key` or `existing_access_key_secret_name` is required."
+  description = "An alternative to using `access_key`. Specify the name of an existing Kubernetes secret containing the access key in the same namespace that is defined in the `namespace` input. If neither `access_key` nor `existing_access_key_secret_name` is provided a new Manager Key will be created scoped to the instance provided in `instance_crn`."
   default     = null
 }
 
@@ -361,4 +386,15 @@ variable "cluster_shield_limits_memory" {
   type        = string
   description = "Specify memory resource limits for the cluster shield pods."
   default     = "1536Mi"
+}
+
+variable "provider_visibility" {
+  description = "Set the visibility value for the IBM terraform provider. Supported values are `public`, `private`, `public-and-private`. [Learn more](https://registry.terraform.io/providers/IBM-Cloud/ibm/latest/docs/guides/custom-service-endpoints)."
+  type        = string
+  default     = "private"
+
+  validation {
+    condition     = contains(["public", "private", "public-and-private"], var.provider_visibility)
+    error_message = "Invalid visibility option. Allowed values are 'public', 'private', or 'public-and-private'."
+  }
 }

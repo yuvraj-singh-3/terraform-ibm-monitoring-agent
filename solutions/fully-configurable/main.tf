@@ -9,6 +9,25 @@ data "ibm_container_cluster_config" "cluster_config" {
   endpoint_type     = var.cluster_config_endpoint_type != "default" ? var.cluster_config_endpoint_type : null
 }
 
+locals {
+  prefix            = var.prefix != null ? trimspace(var.prefix) != "" ? "${var.prefix}-" : "" : ""
+  create_access_key = ((var.access_key != null && var.access_key != "") || (var.existing_access_key_secret_name != null && var.existing_access_key_secret_name != "")) ? 0 : 1
+}
+
+module "instance_crn_parser" {
+  source  = "terraform-ibm-modules/common-utilities/ibm//modules/crn-parser"
+  version = "1.2.0"
+  crn     = var.instance_crn
+}
+
+
+resource "ibm_resource_key" "key" {
+  count                = local.create_access_key
+  name                 = "${local.prefix}key"
+  resource_instance_id = module.instance_crn_parser.service_instance
+  role                 = "Manager"
+}
+
 module "monitoring_agent" {
   source                          = "../.."
   cluster_id                      = var.cluster_id
@@ -16,12 +35,12 @@ module "monitoring_agent" {
   cluster_config_endpoint_type    = var.cluster_config_endpoint_type
   wait_till                       = var.wait_till
   wait_till_timeout               = var.wait_till_timeout
-  instance_region                 = var.instance_region
+  instance_region                 = module.instance_crn_parser.region
   use_private_endpoint            = var.use_private_endpoint
   is_vpc_cluster                  = var.is_vpc_cluster
   name                            = var.name
   namespace                       = var.namespace
-  access_key                      = var.access_key
+  access_key                      = local.create_access_key == 1 ? ibm_resource_key.key[0].credentials["Sysdig Access Key"] : var.access_key
   existing_access_key_secret_name = var.existing_access_key_secret_name
   agent_tags                      = var.agent_tags
   add_cluster_name                = var.add_cluster_name

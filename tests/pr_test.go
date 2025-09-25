@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IBM/go-sdk-core/core"
 	"github.com/gruntwork-io/terratest/modules/files"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic"
 )
@@ -94,7 +96,7 @@ func TestFullyConfigurableSolution(t *testing.T) {
 
 		options := testschematic.TestSchematicOptionsDefault(&testschematic.TestSchematicOptions{
 			Testing: t,
-			Prefix:  "monitoring-agent",
+			Prefix:  "mon-agent",
 			TarIncludePatterns: []string{
 				"*.tf",
 				"kubeconfig/*.*",
@@ -114,9 +116,10 @@ func TestFullyConfigurableSolution(t *testing.T) {
 		})
 		options.TerraformVars = []testschematic.TestSchematicTerraformVar{
 			{Name: "ibmcloud_api_key", Value: options.RequiredEnvironmentVars["TF_VAR_ibmcloud_api_key"], DataType: "string", Secure: true},
-			{Name: "instance_region", Value: region, DataType: "string"},
+			{Name: "prefix", Value: options.Prefix, DataType: "string"},
 			{Name: "cluster_id", Value: terraform.Output(t, existingTerraformOptions, "cluster_id"), DataType: "string"},
 			{Name: "cluster_resource_group_id", Value: terraform.Output(t, existingTerraformOptions, "cluster_resource_group_id"), DataType: "string"},
+			{Name: "instance_crn", Value: terraform.Output(t, existingTerraformOptions, "instance_crn"), DataType: "string", Secure: true},
 			{Name: "access_key", Value: terraform.Output(t, existingTerraformOptions, "access_key"), DataType: "string", Secure: true},
 			{Name: "priority_class_name", Value: "sysdig-daemonset-priority", DataType: "string"},
 		}
@@ -178,7 +181,7 @@ func TestFullyConfigurableUpgradeSolution(t *testing.T) {
 
 		options := testschematic.TestSchematicOptionsDefault(&testschematic.TestSchematicOptions{
 			Testing: t,
-			Prefix:  "monitoring-agent",
+			Prefix:  "mon-agent",
 			TarIncludePatterns: []string{
 				"*.tf",
 				"kubeconfig/*.*",
@@ -199,9 +202,10 @@ func TestFullyConfigurableUpgradeSolution(t *testing.T) {
 
 		options.TerraformVars = []testschematic.TestSchematicTerraformVar{
 			{Name: "ibmcloud_api_key", Value: options.RequiredEnvironmentVars["TF_VAR_ibmcloud_api_key"], DataType: "string", Secure: true},
-			{Name: "instance_region", Value: region, DataType: "string"},
+			{Name: "prefix", Value: options.Prefix, DataType: "string"},
 			{Name: "cluster_id", Value: terraform.Output(t, existingTerraformOptions, "cluster_id"), DataType: "string"},
 			{Name: "cluster_resource_group_id", Value: terraform.Output(t, existingTerraformOptions, "cluster_resource_group_id"), DataType: "string"},
+			{Name: "instance_crn", Value: terraform.Output(t, existingTerraformOptions, "instance_crn"), DataType: "string", Secure: true},
 			{Name: "access_key", Value: terraform.Output(t, existingTerraformOptions, "access_key"), DataType: "string", Secure: true},
 		}
 
@@ -251,7 +255,7 @@ func TestRunAgentClassicKubernetes(t *testing.T) {
 		Testing:       t,
 		TerraformDir:  terraformDirMonitoringAgentIKS,
 		Prefix:        "obs-agent-iks",
-		Region:        "au-syd",
+		Region:        validRegions[rand.IntN(len(validRegions))],
 		ResourceGroup: resourceGroup,
 		IgnoreUpdates: testhelper.Exemptions{ // Ignore for consistency check
 			List: IgnoreUpdates,
@@ -270,4 +274,52 @@ func TestRunAgentClassicKubernetes(t *testing.T) {
 	output, err := options.RunTestConsistency()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+}
+
+func TestAgentDefaultConfiguration(t *testing.T) {
+
+	/*
+		Skipping this test because auto-approve is not working as expected in projects
+		Config gets stuck in approved state and doesn't move to deployment
+		https://github.ibm.com/epx/projects/issues/4814
+	*/
+	t.Skip("Skipping because of projects issue")
+	t.Parallel()
+
+	options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+		Testing:   t,
+		Prefix:    "ma-def",
+		QuietMode: false,
+	})
+
+	options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+		options.Prefix,
+		"deploy-arch-ibm-monitoring-agent",
+		"fully-configurable",
+		map[string]interface{}{
+			"prefix":                       options.Prefix,
+			"secrets_manager_service_plan": "trial",
+			"region":                       "eu-de",
+		},
+	)
+
+	/*
+		Event notifications is manually disabled in this test because event notifications DA creates kms keys and during undeploy the order of key protect and event notifications
+		is not considered by projects as EN is not a direct dependency of VSI DA. So undeploy fails, because
+		key protect instance can't be deleted because of active keys created by EN. Hence for now, we don't want to deploy
+		EN.
+
+		Issue has been created for projects team. https://github.ibm.com/epx/projects/issues/4750
+		Once that is fixed, we can remove the logic to disable EN
+	*/
+	options.AddonConfig.Dependencies = []cloudinfo.AddonConfig{
+		{
+			OfferingName:   "deploy-arch-ibm-event-notifications",
+			OfferingFlavor: "fully-configurable",
+			Enabled:        core.BoolPtr(false), // explicitly disabled
+		},
+	}
+
+	err := options.RunAddonTest()
+	require.NoError(t, err)
 }
