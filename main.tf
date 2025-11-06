@@ -265,6 +265,12 @@ resource "helm_release" "cloud_monitoring_agent" {
 %{if var.max_surge != null}
         "maxSurge": ${var.max_surge}
 %{endif}
+%{if length(var.node_selector) > 0}
+    "nodeSelector":
+%{for label_key, label_value in var.node_selector~}
+      "${label_key}": "${label_value}"
+%{endfor~}
+%{endif}
 EOT
   ]
 
