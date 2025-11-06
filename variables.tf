@@ -284,8 +284,9 @@ variable "priority_class_value" {
 }
 
 variable "node_selector" {
-  description = "Map of node selector labels for the DaemonSet pods. Defaults to empty map."
   type        = map(string)
+  nullable    = false
+  description = "Map of node selector labels for the DaemonSet pods. Defaults to empty map."
   default     = {}
 }
 
